@@ -1,35 +1,124 @@
 {
-  "AWSTemplateFormatVersion": "2010-09-09",
-  "Description": "Test secure S3 bucket (ephemeral)",
-  "Resources": {
-    "TestBucket": {
-      "Type": "AWS::S3::Bucket",
-      "Properties": {
-        "BucketName": {
-          "Fn::Sub": "room5-sample-cloudone-indira-esi-${AWS::AccountId}-${AWS::Region}"
-        },
-        "OwnershipControls": {
-          "Rules": [
-            {
-              "ObjectOwnership": "BucketOwnerEnforced"
-            }
-          ]
-        },
-        "PublicAccessBlockConfiguration": {
-          "BlockPublicAcls": true,
-          "BlockPublicPolicy": true,
-          "IgnorePublicAcls": true,
-          "RestrictPublicBuckets": true
-        }
-      }
-    }
-  },
-  "Outputs": {
-    "TestBucketName": {
-      "Value": {
-        "Ref": "TestBucket"
-      },
-      "Description": "The name of the ephemeral S3 bucket created for CodePipeline"
-    }
-  }
+	"AWSTemplateFormatVersion": "2010-09-09",
+	"Description": "INTENTIONAL-SECURITY-VULNERABILITIES: public S3, wide-open SG, IAM user with full admin + access key (for testing scanners)",
+	"Resources": {
+		"InsecureS3Bucket": {
+			"Type": "AWS::S3::Bucket",
+			"Properties": {
+				"AccessControl": "PublicRead",
+				"WebsiteConfiguration": {
+					"IndexDocument": "index.html"
+				},
+				"Tags": [
+					{
+						"Key": "Environment",
+						"Value": "insecure-lab"
+					}
+				]
+			}
+		},
+		"InsecureSecurityGroup": {
+			"Type": "AWS::EC2::SecurityGroup",
+			"Properties": {
+				"GroupDescription": "Open SG - insecure (for lab testing)",
+				"SecurityGroupIngress": [
+					{
+						"IpProtocol": "-1",
+						"FromPort": -1,
+						"ToPort": -1,
+						"CidrIp": "0.0.0.0/0"
+					}
+				]
+			}
+		},
+		"InsecureInstance": {
+			"Type": "AWS::EC2::Instance",
+			"Properties": {
+				"ImageId": "ami-0ff8a91507f77f867",
+				"InstanceType": "t2.micro",
+				"KeyName": "insecure-key",
+				"SecurityGroupIds": [
+					{
+						"Ref": "InsecureSecurityGroup"
+					}
+				],
+				"Tags": [
+					{
+						"Key": "Environment",
+						"Value": "insecure-lab"
+					}
+				],
+				"UserData": {
+					"Fn::Base64": {
+						"Fn::Join": [
+							"",
+							[
+								"#cloud-config\n",
+								"runcmd:\n",
+								" - echo 'This is insecure userdata with credentials' > /tmp/insecure\n"
+							]
+						]
+					}
+				}
+			}
+		},
+		"InsecureIAMUser": {
+			"Type": "AWS::IAM::User",
+			"Properties": {
+				"UserName": "insecure-lab-user"
+			}
+		},
+		"InsecureUserPolicy": {
+			"Type": "AWS::IAM::Policy",
+			"Properties": {
+				"PolicyName": "insecure-full-access-policy",
+				"PolicyDocument": {
+					"Version": "2012-10-17",
+					"Statement": [
+						{
+							"Effect": "Allow",
+							"Action": "*",
+							"Resource": "*"
+						}
+					]
+				},
+				"Users": [
+					{
+						"Ref": "InsecureIAMUser"
+					}
+				]
+			}
+		},
+		"InsecureAccessKey": {
+			"Type": "AWS::IAM::AccessKey",
+			"Properties": {
+				"UserName": {
+					"Ref": "InsecureIAMUser"
+				}
+			}
+		}
+	},
+	"Outputs": {
+		"S3BucketName": {
+			"Description": "Insecure S3 bucket name",
+			"Value": {
+				"Ref": "InsecureS3Bucket"
+			}
+		},
+		"InsecureUserAccessKeyId": {
+			"Description": "Access Key ID (insecure - for lab)",
+			"Value": {
+				"Ref": "InsecureAccessKey"
+			}
+		},
+		"InsecureUserSecretAccessKey": {
+			"Description": "Secret Access Key (INSECURE!! visible in outputs) - for lab only",
+			"Value": {
+				"Fn::GetAtt": [
+					"InsecureAccessKey",
+					"SecretAccessKey"
+				]
+			}
+		}
+	}
 }
