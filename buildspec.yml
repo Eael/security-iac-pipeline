@@ -2,17 +2,43 @@ version: 0.2
 
 phases:
   install:
+    runtime-versions:
+      python: 3.9
     commands:
-      - echo "Dependencies already available"
+      - echo "Installing dependencies"
+      - pip3 install --upgrade pip
+      - pip3 install awscli
+
+  pre_build:
+    commands:
+      - echo "Pre-build checks"
+      # Verify DNS / internet connectivity
+      - echo "Checking connectivity..."
+      - curl -I https://google.com || { echo "❌ No internet access in CodeBuild"; exit 1; }
+
   build:
     commands:
-      - echo "Checking if API key is injected..."
-      - if [ -z "$CONFORMITY_API_KEY" ]; then echo "❌ API key not found"; exit 1; else echo "✅ API key is available"; fi
-      - echo "Running Conformity Template Scanner..."
+      - echo "Running Conformity template scan..."
       - |
         curl -X POST \
           -H "Authorization: ApiKey $CONFORMITY_API_KEY" \
           -H "Content-Type: application/json" \
           -d @template.json \
           https://conformity.trendmicro.com/api/template-scanner/scan \
-          | jq .
+          -o scan-result.json || { echo "❌ Failed to reach Conformity API"; exit 1; }
+
+      # Pretty print the results if jq is available
+      - if command -v jq; then cat scan-result.json | jq .; else cat scan-result.json; fi
+
+      # Fail the build if scan-result.json contains any "FAIL" or "ERROR"
+      - |
+        if grep -q '"status":"FAIL"' scan-result.json || grep -q '"status":"ERROR"' scan-result.json; then
+          echo "❌ Conformity scan detected issues"
+          exit 1
+        else
+          echo "✅ Conformity scan passed"
+        fi
+
+artifacts:
+  files:
+    - scan-result.json
